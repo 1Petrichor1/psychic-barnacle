@@ -1,1 +1,102 @@
+#include<iostream>
+#include<string>
 
+using namespace std;
+class SM3EncryptFunctions {
+private:
+    string iv = "7380166F4914B2B9172442D7DA8A0600A96F30BC163138AAE38DEE4DB0FB0E4E";
+    uint32_t Ti[2] = { 0x79cc4519, 0x7a879d8a };
+    string get_index = "0123456789ABCDEF";
+    string* arr = new string[68];
+    string* arr1 = new string[64];
+protected:
+    int hex2int(char p) {                       // hex 转 int 
+        return p < 58 ? p - 48 : p - 55;
+    }
+    uint32_t str2uint(string s) {
+        uint32_t temp = 0;
+        for (auto i : s)
+            temp = ((temp << 4) | hex2int(i));
+        return temp;
+    }
+    string uint2str(uint32_t num, int k = 8, string s = "") {    // unsigned int 转 string
+        for (int i = 0; i < k; i++, num /= 16)
+            s += get_index[num % 16];
+        return string(s.rbegin(), s.rend());
+    }
+    uint32_t GetLeftShift(uint32_t num, int left) {             // 循环左移
+        return (num << left) | (num >> (32 - left));
+    }
+    uint32_t GetTi(int x) {
+        return x > 15 ? Ti[1] : Ti[0];
+    }
+    uint32_t FunctionFFi(uint32_t x, uint32_t y, uint32_t z, int n) {
+        return n > 15 ? ((x & y) | (y & z) | (x & z)) : (x ^ y ^ z);
+    }
+    uint32_t FunctionGGi(uint32_t x, uint32_t y, uint32_t z, int n) {
+        return n > 15 ? ((x & y) | ((~x) & z)) : (x ^ y ^ z);
+    }
+    uint32_t IntendP(uint32_t x) {
+        return (x ^ GetLeftShift(x, 9) ^ GetLeftShift(x, 17));
+    }
+    uint32_t ExtendP(uint32_t x) {
+        return (x ^ GetLeftShift(x, 15) ^ GetLeftShift(x, 23));
+    }
+    int AddEndOfMessage(string& s, int n, uint64_t size) {
+        s.push_back('8');
+        for (int i = 0; i < n / 4; i++)
+            s.push_back('0');
+        string ss = uint2str(size, 16);
+        s += ss;
+        return n;
+    }
+    void MessageExtend(string B) {
+        for (int i = 0; i < 16; i++)
+            arr[i] = B.substr(8 * i, 8);
+        for (int i = 16; i < 68; i++)
+            arr[i] = uint2str(ExtendP(str2uint(arr[i - 16]) ^ str2uint(arr[i - 9]) ^ GetLeftShift(str2uint(arr[i - 3]), 15)) ^ GetLeftShift(str2uint(arr[i - 13]), 7) ^ str2uint(arr[i - 6]));
+        for (int i = 0; i < 64; i++)
+            arr1[i] = uint2str((str2uint(arr[i]) ^ str2uint(arr[i + 4])));
+    }
+    string FunctionCF(string V, string Bi) {
+        string vi[8];
+        string vi_copy[8];
+        for (int i = 0; i < 8; i++) {
+            vi[i] = V.substr(8 * i, 8);
+            vi_copy[i] = vi[i];
+        }
+        for (int i = 0; i < 64; i++) {
+            uint32_t SS1 = GetLeftShift((GetLeftShift(str2uint(vi[0]), 12) + str2uint(vi[4]) + GetLeftShift(GetTi(i), i % 32)), 7);
+            uint32_t SS2 = (SS1 ^ GetLeftShift(str2uint(vi[0]), 12));
+            uint32_t TT1 = FunctionFFi(str2uint(vi[0]), str2uint(vi[1]), str2uint(vi[2]), i) + str2uint(vi[3]) + SS2 + str2uint(arr1[i]);
+            uint32_t TT2 = FunctionGGi(str2uint(vi[4]), str2uint(vi[5]), str2uint(vi[6]), i) + str2uint(vi[7]) + SS1 + str2uint(arr[i]);
+            vi[3] = vi[2]; vi[2] = uint2str(GetLeftShift(str2uint(vi[1]), 9)); vi[1] = vi[0];
+            vi[0] = uint2str(TT1); vi[7] = vi[6]; vi[6] = uint2str(GetLeftShift(str2uint(vi[5]), 19)); vi[5] = vi[4]; vi[4] = uint2str(IntendP(TT2));
+        }
+        string result = "";
+        for (int i = 0; i < 8; i++) {
+            vi[i] = uint2str((str2uint(vi_copy[i]) ^ str2uint(vi[i])));
+            result += vi[i];
+        }
+        return result;
+    }
+public:
+    string SM3Encrypt(string m) {
+        uint64_t size = (uint64_t)m.size() * (uint64_t)4;
+        uint64_t num = (size + 1) - (size + 1) % 512;
+        int k = AddEndOfMessage(m, num < 448 ? 448 - num : 960 - num, size);
+        uint64_t group_number = (size + 65 + k) / 512;
+        string* B = new string[group_number];
+        string* V = new string[group_number + 1];
+        V[0] = iv;
+        for (int i = 0; i < group_number; i++) {
+            B[i] = m.substr(128 * i, 128);
+            MessageExtend(B[i]);
+            V[i + 1] = FunctionCF(V[i], B[i]);
+        }
+        string result = V[group_number];
+        delete[] B;
+        delete[] V;
+        return result;
+    }
+};
